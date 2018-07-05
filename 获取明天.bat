@@ -1,0 +1,1 @@
+java -jar BingWallpaper.jar -startTime -1 -count 1
