@@ -70,7 +70,8 @@ class ImageDownloadRunable : Runnable {
         openConnection.setDoInput(true);
         openConnection.connect()
         println("[开始]下载(${file.name})...")
-        Okio.buffer(Okio.sink(file)).writeAll(Okio.source(openConnection.inputStream))
+//        Okio.buffer(Okio.sink(file)).writeAll(Okio.source(openConnection.inputStream))
+        Okio.buffer(Okio.source(openConnection.inputStream)).readAll(Okio.sink(file))
         println("下载完成($file)")
     }
 
@@ -98,7 +99,11 @@ fun fixIndex(index: Int): Int {
     }
 }
 
+const val VERSION_NAME = "1.0.1"
+const val VERSION_CODE = 2
+
 fun main(args: Array<String>) {
+    println("版本:$VERSION_NAME-$VERSION_CODE")
     try {
         if (args.isNotEmpty()) {
             if (PARAME_START_TIME.equals(args[0], true)) {
