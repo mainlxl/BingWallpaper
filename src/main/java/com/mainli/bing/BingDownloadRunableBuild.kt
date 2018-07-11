@@ -6,12 +6,11 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.*
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.*
 import javax.net.ssl.HttpsURLConnection
 
 class BingDownloadRunableBuild {
+
     /**
      *  我们可以通过访问：http://cn.bing.com/HPImageArchive.aspx?format=xml&idx=0&n=1获得一个XML文件，里面包含了图片的地址。
      *  上面访问参数的含义分别是：
@@ -41,23 +40,53 @@ class BingDownloadRunableBuild {
             file.mkdirs()
         }
         println("存储路径:$file")
-        return bingWrapper.images.asSequence().map {
+        val toList = bingWrapper.images.asSequence().map {
             ImageDownloadRunable(
                     BingImage("$BING_URL${it.url}",
                             "${it.copyright.replace(Regex("[ \\{\\}\\*\\/©]"), "").trim()}.jpg", it.enddate), savePath)
         }.filter(ImageDownloadRunable::isNeedDownload).toList()
+        return addCountDownLatch(toList)
     }
 
-    fun build(idx: Int, count: Int, savePath: String): List<ImageDownloadRunable> {
-        val downloadJSON = downloadJSON(obtainURL(idx, count))
-        return analyzeJsonObtainImageBingRunable(downloadJSON, savePath)
+    private fun addCountDownLatch(toList: List<ImageDownloadRunable>): List<ImageDownloadRunable> {
+        if (toList.size > 1) {
+            mCurrentCountDownLatch = CountDownLatch(toList.size)
+        } else if (mCurrentCountDownLatch != null) {
+            mCurrentCountDownLatch = null;
+        }
+        toList.forEach {
+            it.countDownLatch = mCurrentCountDownLatch
+        }
+        return toList
     }
+
+
+    var mCurrentCountDownLatch: CountDownLatch? = null
+
+    fun awaitFinish() {
+        mCurrentCountDownLatch?.await()
+    }
+
+    var mDownloadImageJson: String? = null
+    fun loadDownloadImageJson(idx: Int, count: Int): BingDownloadRunableBuild {
+        mDownloadImageJson = downloadJSON(obtainURL(idx, count))
+        return this
+    }
+
+    fun buildRunableList(savePath: String): List<ImageDownloadRunable> {
+        if (mDownloadImageJson == null) {
+            throw RuntimeException("未获取到必应服务器返回信息")
+        }
+        return analyzeJsonObtainImageBingRunable(mDownloadImageJson!!, savePath)
+    }
+
 
 }
 
 class ImageDownloadRunable : Runnable {
     val image: BingImage
     val file: File
+    var countDownLatch: CountDownLatch? = null
 
     constructor(image: BingImage, savePath: String) {
         this.image = image
@@ -73,6 +102,8 @@ class ImageDownloadRunable : Runnable {
 //        Okio.buffer(Okio.sink(file)).writeAll(Okio.source(openConnection.inputStream))
         Okio.buffer(Okio.source(openConnection.inputStream)).readAll(Okio.sink(file))
         println("下载完成($file)")
+        //减少
+        countDownLatch?.countDown()
     }
 
     fun isNeedDownload(): Boolean {
@@ -85,7 +116,7 @@ class ImageDownloadRunable : Runnable {
 }
 
 var index = 0
-var count = 1
+var count = 5
 const val PARAME_START_TIME = "-startTime"
 const val PARAME_COUNT = "-count"
 
@@ -120,16 +151,30 @@ fun main(args: Array<String>) {
     } finally {
         println("参数:${Arrays.toString(args)}")
     }
-    val newCachedThreadPool = Executors.newCachedThreadPool()
-    val runables = BingDownloadRunableBuild().build(index, count, File("bing背景").absolutePath)
-    val arrayListOf = Array<Future<*>>(runables.size) { index ->
-        newCachedThreadPool.submit(runables[index])
+    val bingDownloadRunableBuild = BingDownloadRunableBuild().loadDownloadImageJson(index, count)
+    var newCachedThreadPool: ExecutorService? = null
+    try {
+        val runablesList = bingDownloadRunableBuild.buildRunableList(File("bing背景").absolutePath)
+        if (runablesList.size > 1) {
+            newCachedThreadPool = Executors.newCachedThreadPool()
+            runablesList.forEach {
+                newCachedThreadPool.execute(it)
+            }
+        } else if (runablesList.isNotEmpty()) {
+            runablesList[0].run()
+        }
+//    val arrayListOf = Array<Future<*>>(runables.size) { index ->
+//        newCachedThreadPool.submit(runables[index])
+//    }
+//    for (future in arrayListOf) {
+//        future.get()
+//    }
+    } catch (e: RuntimeException) {
+    } finally {
+        bingDownloadRunableBuild.awaitFinish()
+        newCachedThreadPool?.shutdownNow()
+        println("结束:作者Mainli")
     }
-    for (future in arrayListOf) {
-        future.get()
-    }
-    newCachedThreadPool.shutdownNow()
-    println("结束:作者Mainli")
 }
 
 
