@@ -43,7 +43,7 @@ class BingDownloadRunableBuild {
         val toList = bingWrapper.images.asSequence().map {
             ImageDownloadRunable(
                     BingImage("$BING_URL${it.url}",
-                            "${it.copyright.replace(Regex("[ \\{\\}\\*\\/©]"), "").trim()}.jpg", it.enddate), savePath)
+                            "${it.copyright.replace(Regex("([^\\u4e00-\\u9fa5_a-zA-Z0-9- ])+"), "").trim()}.jpg", it.enddate), savePath)
         }.filter(ImageDownloadRunable::isNeedDownload).toList()
         return addCountDownLatch(toList)
     }
@@ -116,7 +116,7 @@ class ImageDownloadRunable : Runnable {
 }
 
 var index = 0
-var count = 5
+var count = 1
 const val PARAME_START_TIME = "-startTime"
 const val PARAME_COUNT = "-count"
 
